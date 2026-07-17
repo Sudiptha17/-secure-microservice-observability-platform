@@ -1,6 +1,8 @@
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from prometheus_client import Counter, Histogram, generate_latest
+from starlette.responses import PlainTextResponse
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -31,6 +33,17 @@ password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 users_database: dict[str, dict[str, str]] = {}
+REQUEST_COUNT = Counter(
+    "api_requests_total",
+    "Total number of API requests",
+    ["method", "endpoint", "status_code"],
+)
+
+REQUEST_LATENCY = Histogram(
+    "api_request_duration_seconds",
+    "API request duration in seconds",
+    ["method", "endpoint"],
+)
 
 
 class UserRegistration(BaseModel):
@@ -46,6 +59,18 @@ async def logging_middleware(request: Request, call_next):
         response = await call_next(request)
 
         duration_ms = (time.perf_counter() - start_time) * 1000
+        duration_seconds = duration_ms / 1000
+
+        REQUEST_COUNT.labels(
+        method=request.method,
+        endpoint=request.url.path,
+        status_code=response.status_code,
+        ).inc()
+
+        REQUEST_LATENCY.labels(
+        method=request.method,
+        endpoint=request.url.path,
+        ).observe(duration_seconds)
 
         logger.info(
             "method=%s path=%s status=%s duration_ms=%.2f",
@@ -181,3 +206,7 @@ def protected_route(current_user: str = Depends(get_current_user)):
 @app.get("/simulate-error")
 def simulate_error():
     raise RuntimeError("Demonstration application error")
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def prometheus_metrics():
+    return generate_latest().decode("utf-8")
