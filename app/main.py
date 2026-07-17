@@ -202,6 +202,14 @@ def protected_route(current_user: str = Depends(get_current_user)):
         "authenticated_user": current_user,
     }
 
+@app.get("/profile")
+def get_profile(current_user: str = Depends(get_current_user)):
+    return {
+        "username": current_user,
+        "role": "api_user",
+        "account_status": "active",
+        "service": "secure-microservice-platform",
+    }
 
 @app.get("/simulate-error")
 def simulate_error():
